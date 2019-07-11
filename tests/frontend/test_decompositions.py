@@ -91,7 +91,7 @@ class TestGraphEmbed:
     def test_square_validation(self):
         """Test that the graph_embed decomposition raises exception if not square"""
         A = np.random.random([4, 5]) + 1j * np.random.random([4, 5])
-        with pytest.raises(ValueError, match="Matrix is not square"):
+        with pytest.raises(ValueError, match="matrix is not square"):
             dec.graph_embed(A)
 
     def test_symmetric_validation(self):
@@ -100,18 +100,18 @@ class TestGraphEmbed:
         with pytest.raises(ValueError, match="matrix is not symmetric"):
             dec.graph_embed(A)
 
-    def test_mean_photon(self, tol):
+    def test_max_mean_photon_deprecated(self, tol):
         """This test verifies that the maximum amount of squeezing used to encode
         the graph is indeed capped by the parameter max_mean_photon"""
         max_mean_photon = 2
         A = np.random.random([6, 6]) + 1j * np.random.random([6, 6])
         A += A.T
-        sc, _ = dec.graph_embed(A, max_mean_photon=max_mean_photon)
+        sc, _ = dec.graph_embed_deprecated(A, max_mean_photon=max_mean_photon)
         res_mean_photon = np.sinh(np.max(np.abs(sc))) ** 2
 
         assert np.allclose(res_mean_photon, max_mean_photon, atol=tol, rtol=0)
 
-    def test_make_traceless(self, monkeypatch, tol):
+    def test_make_traceless_deprecated(self, monkeypatch, tol):
         """Test that A is properly made traceless"""
         A = np.random.random([6, 6]) + 1j * np.random.random([6, 6])
         A += A.T
@@ -122,9 +122,20 @@ class TestGraphEmbed:
             # monkeypatch the takagi function to simply return A,
             # so that we can inspect it and make sure it is now traceless
             m.setattr(dec, "takagi", lambda A, tol: (np.ones([6]), A))
-            _, A_out = dec.graph_embed(A, make_traceless=True)
+            _, A_out = dec.graph_embed_deprecated(A, make_traceless=True)
 
         assert np.allclose(np.trace(A_out), 0, atol=tol, rtol=0)
+
+    def test_mean_photon(self, tol):
+        """Test that the mean photon number is correct in graph_embed"""
+        num_modes = 6
+        A = np.random.random([num_modes, num_modes]) + 1j * np.random.random([num_modes, num_modes])
+        A += A.T
+        n_mean = 10.0 / num_modes
+        sc, _ = dec.graph_embed(A, mean_photon_per_mode=n_mean)
+        n_mean_calc = np.mean(np.sinh(sc) ** 2)
+
+        assert np.allclose(n_mean, n_mean_calc, atol=tol, rtol=0)
 
 
 class TestRectangularDecomposition:
@@ -210,6 +221,50 @@ class TestRectangularDecomposition:
 
         qrec = np.diag(diags) @ qrec
 
+        assert np.allclose(U, qrec, atol=tol, rtol=0)
+
+
+class TestRectangularSymmetricDecomposition:
+    """Tests for linear interferometer decomposition into rectangular grid of
+    phase-shifters and pairs of symmetric beamsplitters"""
+
+    def test_unitary_validation(self):
+        """Test that an exception is raised if not unitary"""
+        A = np.random.random([5, 5]) + 1j * np.random.random([5, 5])
+        with pytest.raises(ValueError, match="matrix is not unitary"):
+            dec.rectangular_symmetric(A)
+
+    @pytest.mark.parametrize('U', [
+        pytest.param(np.identity(2), id='identity2'),
+        pytest.param(np.identity(2)[::-1], id='antiidentity2'),
+        pytest.param(haar_measure(2), id='random2'),
+        pytest.param(np.identity(4), id='identity4'),
+        pytest.param(np.identity(3)[::-1], id='antiidentity4'),
+        pytest.param(haar_measure(4), id='random4'),
+        pytest.param(np.identity(8), id='identity8'),
+        pytest.param(np.identity(8)[::-1], id='antiidentity8'),
+        pytest.param(haar_measure(8), id='random8'),
+        pytest.param(np.identity(20), id='identity20'),
+        pytest.param(np.identity(20)[::-1], id='antiidentity20'),
+        pytest.param(haar_measure(20), id='random20')
+        ])
+    def test_decomposition(self, U, tol):
+        """This test checks the function :func:`dec.rectangular_symmetric` for
+        various unitary matrices.
+
+        A given unitary (identity or random draw from Haar measure) is
+        decomposed using the function :func:`dec.rectangular_symmetric`
+        and the resulting beamsplitters are multiplied together.
+
+        Test passes if the product matches identity.
+        """
+        nmax, mmax = U.shape
+        assert nmax == mmax
+        tlist, diags = dec.rectangular_symmetric(U)
+        qrec = np.identity(nmax)
+        for i in tlist:
+            qrec = dec.mach_zehnder(*i) @ qrec
+        qrec = np.diag(diags) @ qrec
         assert np.allclose(U, qrec, atol=tol, rtol=0)
 
 

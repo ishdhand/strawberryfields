@@ -19,12 +19,42 @@ import os
 import pytest
 
 import strawberryfields as sf
-from strawberryfields.engine import Engine
+from strawberryfields.engine import LocalEngine
 from strawberryfields.program import Program
 from strawberryfields.backends.base import BaseBackend
 from strawberryfields.backends.fockbackend import FockBackend
 from strawberryfields.backends.gaussianbackend import GaussianBackend
-from strawberryfields.backends.tfbackend import TFBackend
+
+
+try:
+    import tensorflow as tf
+except (ImportError, ModuleNotFoundError) as e:
+    tf_available = False
+    tf_version = False
+else:
+    tf_available = True
+    tf_version = tf.__version__
+
+
+backend_params = [
+    pytest.param(FockBackend, marks=pytest.mark.fock),
+    pytest.param(GaussianBackend, marks=pytest.mark.gaussian),
+]
+
+
+eng_backend_params = [
+    pytest.param("fock", marks=pytest.mark.fock),
+    pytest.param("gaussian", marks=pytest.mark.gaussian),
+]
+
+
+if tf_available and tf.__version__[:3] == "1.3":
+    from strawberryfields.backends.tfbackend import TFBackend
+
+    backend_params.append(pytest.param(TFBackend, marks=pytest.mark.tf))
+    eng_backend_params.append(pytest.param("tf", marks=pytest.mark.tf))
+else:
+    tf_available = False
 
 
 # defaults
@@ -101,8 +131,8 @@ def backend(monkeypatch):
         m.setattr(dummy_backend, "squeeze", lambda r, modes: None)
         m.setattr(dummy_backend, "rotation", lambda r, modes: None)
         m.setattr(dummy_backend, "beamsplitter", lambda t, r, m1, m2: None)
-        m.setattr(dummy_backend, "measure_homodyne", lambda phi, modes, select: 5)
-        m.setattr(dummy_backend, "state", lambda modes: None)
+        m.setattr(dummy_backend, "measure_homodyne", lambda phi, modes, select, shots: 5)
+        m.setattr(dummy_backend, "state", lambda modes, shots: None)
         m.setattr(dummy_backend, "reset", lambda: None)
         dummy_backend.get_cutoff_dim = lambda: 6
         yield dummy_backend
@@ -118,13 +148,7 @@ def print_fixtures(cutoff, hbar, batch_size):
     )
 
 
-@pytest.fixture(
-    params=[
-        pytest.param(FockBackend, marks=pytest.mark.fock),
-        pytest.param(GaussianBackend, marks=pytest.mark.gaussian),
-        pytest.param(TFBackend, marks=pytest.mark.tf),
-    ]
-)
+@pytest.fixture(params=backend_params)
 def setup_backend(
     request, cutoff, pure, batch_size
 ):  # pylint: disable=redefined-outer-name
@@ -155,13 +179,7 @@ def setup_backend(
     return _setup_backend
 
 
-@pytest.fixture(
-    params=[
-        pytest.param('fock', marks=pytest.mark.fock),
-        pytest.param('gaussian', marks=pytest.mark.gaussian),
-        pytest.param('tf', marks=pytest.mark.tf),
-    ]
-)
+@pytest.fixture(params=eng_backend_params)
 def setup_backend_pars(
     request, cutoff, pure, batch_size
 ):  # pylint: disable=redefined-outer-name
@@ -174,12 +192,7 @@ def setup_backend_pars(
     use the ``@pytest.mark.backends()`` fixture. For example, for a test that
     only works on the TF and Fock backends, ``@pytest.mark.backends('tf', 'fock').
     """
-    return {
-        'backend_name': request.param,
-        'cutoff_dim': cutoff,
-        'pure': pure,
-        'batch_size': batch_size,
-    }
+    return request.param, {"cutoff_dim": cutoff, "pure": pure, "batch_size": batch_size}
 
 
 @pytest.fixture
@@ -189,8 +202,9 @@ def setup_eng(setup_backend_pars):  # pylint: disable=redefined-outer-name
     def _setup_eng(num_subsystems, **kwargs):
         """Factory function"""
         prog = Program(num_subsystems)
-        setup_backend_pars.update(kwargs)  # override defaults with kwargs
-        eng = Engine(backend=setup_backend_pars['backend_name'], **setup_backend_pars)
+        backend, backend_options = setup_backend_pars
+        backend_options.update(kwargs)  # override defaults with kwargs
+        eng = LocalEngine(backend=backend, backend_options=backend_options)
         return eng, prog
 
     return _setup_eng
@@ -198,7 +212,10 @@ def setup_eng(setup_backend_pars):  # pylint: disable=redefined-outer-name
 
 def pytest_runtest_setup(item):
     """Automatically skip tests if they are marked for only certain backends"""
-    allowed_backends = {"gaussian", "tf", "fock"}
+    if tf_available:
+        allowed_backends = {"gaussian", "tf", "fock"}
+    else:
+        allowed_backends = {"gaussian", "fock"}
 
     # load the marker specifying what the backend is
     marks = {mark.name for mark in item.iter_markers() if mark.name in allowed_backends}
@@ -222,9 +239,8 @@ def pytest_runtest_setup(item):
             )
 
     # skip broken tests
-    for mark in item.iter_markers():
-        if mark.name == "broken":
-            if mark.args:
-                pytest.skip("Broken test skipped: {}".format(*mark.args))
-            else:
-                pytest.skip("Test skipped as corresponding code base is currently broken!")
+    for mark in item.iter_markers(name="broken"):
+        if mark.args:
+            pytest.skip("Broken test skipped: {}".format(*mark.args))
+        else:
+            pytest.skip("Test skipped as corresponding code base is currently broken!")

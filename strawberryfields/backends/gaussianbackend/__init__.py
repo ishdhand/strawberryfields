@@ -29,7 +29,7 @@ using the Gaussian formalism. The primary component of the GaussianBackend is a
 :class:`GaussianBackend` provides the basic API-compatible interface to the simulator, while the
 :class:`GaussianModes` object actually carries out the mathematical simulation.
 
-The :class:`GaussianModes` simulators maintains an internal covariance matrix -- vector of means
+The :class:`GaussianModes` simulators maintain an internal covariance matrix & vector of means
 representation of a multi-mode quantum optical system.
 
 Note that unlike commonly used covariance matrix representations we encode our state in two complex
@@ -39,35 +39,33 @@ matrices :math:`N` and :math:`M` that are defined as follows
 and a vector of means :math:`\alpha_i =\langle a_i \rangle`
 
 
-Basic quantum simulator methods
-================================
+GaussianBackend methods
+=======================
 
 .. currentmodule:: strawberryfields.backends.gaussianbackend.GaussianBackend
 
-The :class:`GaussianBackend` simulator implements a number of state preparations, gates, and measurements (listed below).
-
 .. autosummary::
+   supports
    begin_circuit
+   add_mode
+   del_mode
+   get_modes
+   reset
+   state
+   is_vacuum
    prepare_vacuum_state
    prepare_coherent_state
    prepare_squeezed_state
    prepare_displaced_squeezed_state
-   prepare_fock_state
-   prepare_ket_state
+   prepare_thermal_state
    rotation
    displacement
    squeeze
    beamsplitter
    loss
-   measure_fock
+   thermal_loss
    measure_homodyne
    measure_heterodyne
-   is_vacuum
-   del_mode
-   add_mode
-   get_modes
-   reset
-   state
 
 Code details
 ~~~~~~~~~~~~
