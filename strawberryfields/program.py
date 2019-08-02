@@ -188,10 +188,17 @@ class Program:
         self.circuit = []
         #: bool: if True, no more Commands can be appended to the Program
         self.locked = False
-        #: str, None: for compiled Programs, the short name of the target circuit template, otherwise None
+        #: str, None: for compiled Programs, the short name of the target CircuitSpecs template, otherwise None
         self.target = None
         #: Program, None: for compiled Programs, this is the original, otherwise None
         self.source = None
+
+        self.run_options = {}
+        """dict[str, Any]: dictionary of default run options, to be passed to the engine upon
+        execution of the program. Note that if the ``run_options`` dictionary is passed
+        directly to :meth:`~.Engine.run`, it takes precedence over the run options specified
+        here.
+        """
 
         # create subsystem references
         if isinstance(num_subsystems, numbers.Integral):
@@ -221,7 +228,7 @@ class Program:
 
     def __str__(self):
         """String representation."""
-        return self.__class__.__name__ + '({}, {}->{} subsystems, compiled for {})'.format(
+        return self.__class__.__name__ + "({}, {}->{} subsystems, compiled for '{}')".format(
             self.name, self.init_num_subsystems, self.num_subsystems, self.target
         )
 
@@ -498,41 +505,7 @@ class Program:
                     "only supports a {}-mode program".format(modes_total, target, db.modes)
                 )
 
-        def compile_sequence(seq):
-            """Compiles the given Command sequence."""
-            compiled = []
-            for cmd in seq:
-                op_name = cmd.op.__class__.__name__
-                if op_name in db.decompositions:
-                    # target can implement this op decomposed
-                    if hasattr(cmd.op, 'decomp') and not cmd.op.decomp:
-                        # user has requested application of the op as a primitive
-                        if op_name in db.primitives:
-                            compiled.append(cmd)
-                            continue
-                        else:
-                            raise CircuitError("The operation {} is not a primitive for the target '{}'".format(cmd.op.__class__.__name__, target))
-                    try:
-                        kwargs = db.decompositions[op_name]
-                        temp = cmd.op.decompose(cmd.reg, **kwargs)
-                        # now compile the decomposition
-                        temp = compile_sequence(temp)
-                        compiled.extend(temp)
-                    except NotImplementedError as err:
-                        # Operation does not have _decompose() method defined!
-                        # simplify the error message by suppressing the previous exception
-                        raise err from None
-
-                elif op_name in db.primitives:
-                    # target can handle the op natively
-                    compiled.append(cmd)
-
-                else:
-                    raise CircuitError("The operation {} cannot be used with the target '{}'.".format(cmd.op.__class__.__name__, target))
-
-            return compiled
-
-        seq = compile_sequence(self.circuit)
+        seq = db.decompose(self.circuit)
 
         if kwargs.get('warn_connected', True):
             DAG = pu.list_to_DAG(seq)
@@ -546,12 +519,18 @@ class Program:
 
         # does the circuit spec  have its own compilation method?
         if db.compile is not None:
-            seq = db.compile(seq)
+            seq = db.compile(seq, self.register)
 
         # create the compiled Program
         compiled = self._linked_copy()
         compiled.circuit = seq
         compiled.target = target
+
+        # get run options of compiled program
+        # for the moment, shots is the only supported run option.
+        if "shots" in kwargs:
+            compiled.run_options["shots"] = kwargs["shots"]
+
         return compiled
 
 
